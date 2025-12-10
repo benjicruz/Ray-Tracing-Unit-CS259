@@ -5,7 +5,7 @@ module ti_top #(
     parameter DEPTH_SIZE       = 5,    // BVH tree level size for binary
     parameter ACTUAL_DEPTH     = 2**N, // actual BVH tree levels
     parameter ADDR             = 32,   // pointer addresses
-    parameter ROOT_ADDR        = 64,   // embree bvh address
+    parameter ROOT_ADDR        = 32,   // embree bvh address
     parameter NODE_SIZE        = 512,  // 64B
     parameter RAY_SIZE         = 512,  // TODO
     parameter DIST_SIZE        = 32,   // TODO
@@ -259,7 +259,7 @@ module ti_top #(
             for (int i=0; i<ACTUAL_DEPTH; i=i+1) begin
                 restart_trail[i] <= 0;
             end
-            root_node           <= 0;
+            root_node           <= 'hA1; // for tb
             cur_node            <= 0;
             intersect_children  <= 0;
             intersect_leaf      <= 0;
@@ -289,7 +289,7 @@ module ti_top #(
                     end
 
                     level              <= 0;
-                    cur_node           <= 0;
+                    cur_node           <= root_node;
                     for (int i=0; i<ACTUAL_DEPTH; i=i+1) begin
                         restart_trail[i] <= 0;
                     end
@@ -297,14 +297,19 @@ module ti_top #(
                 end
 
                 CHECK_NODE: begin
-                    if (is_internal_node) begin
-                        k                  <= restart_trail[level];
-                        intersect_children <= 1;
-                        state              <= SORT_NODES;
+                    if (node_data_valid) begin
+                        if (is_internal_node) begin
+                            k                  <= restart_trail[level];
+                            intersect_children <= 1;
+                            state              <= SORT_NODES;
+                        end
+                        else begin
+                            intersect_leaf <= 1;
+                            state          <= POP;
+                        end
                     end
                     else begin
-                        intersect_leaf <= 1;
-                        state          <= POP;
+                        state <= CHECK_NODE;
                     end
                 end
 
@@ -347,10 +352,12 @@ module ti_top #(
                         restart_trail[level] <= N;
                     end
                     else begin
-                        {S, short_stack} <= {S, short_stack} >> ADDR*(S_size-1); // push S to short stack
+                        // push S to short stack
+                        short_stack <= (short_stack << ADDR*(S_size-1)) + (S >> ADDR);
                         short_stack_counter <= short_stack_counter + S_size - 1;
                     end
                     level <= level + 1;
+                    state <= CHECK_NODE;
                 end
 
                 POP: begin
@@ -366,12 +373,12 @@ module ti_top #(
                             end
                         end
                         if (short_stack_counter == 0) begin
-                            cur_node <= 0;
+                            cur_node <= root_node;
                             level    <= 0;
                         end
                         else begin
-                            cur_node <= short_stack[SHORT_STACK_SIZE*ADDR-1 -: ADDR]; // MSB is top
-                            short_stack <= short_stack << ADDR;
+                            cur_node <= short_stack[ADDR-1:0]; // LSB is top
+                            short_stack <= short_stack >> ADDR;
                             short_stack_counter <= short_stack_counter - 1;
                             if (short_stack_counter == 1) begin
                                 restart_trail[parent_level] <= N;
