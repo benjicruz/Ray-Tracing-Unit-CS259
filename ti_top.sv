@@ -6,7 +6,7 @@ module ti_top #(
     parameter ACTUAL_DEPTH     = 2**N, // actual BVH tree levels
     parameter ADDR             = 32,   // pointer addresses
     parameter ROOT_ADDR        = 64,   // embree bvh address
-    parameter NODE_SIZE        = 512,  // TODO
+    parameter NODE_SIZE        = 512,  // 64B
     parameter RAY_SIZE         = 512,  // TODO
     parameter DIST_SIZE        = 32,   // TODO
     parameter SHORT_STACK_SIZE = 5,
@@ -19,15 +19,15 @@ module ti_top #(
     input  logic                 rst,
 
     // ray buffer: feeds ray when ti unit is not busy
-    input  logic [RAY_SIZE-1:0]  ray_data,
-    input  logic                 ray_valid,
-    output logic                 busy,
+    input  logic [RAY_SIZE-1:0]    ray_data,
+    input  logic                   ray_valid,
+    output logic                   busy,
 
     // cache
-    input  logic [NODE_SIZE-1:0] node_data,
-    input  logic                 node_data_valid,
-    output logic [ROOT_ADDR-1:0] root_node,
-    output logic [ADDR-1:0]      cur_node,
+    input  logic [NODE_SIZE-1:0]   node_data,
+    input  logic                   node_data_valid,
+    output logic [ROOT_ADDR-1:0]   root_node, // TODO
+    output logic [ADDR-1:0]        cur_node,
 
     // intersection unit
     input  logic                   H_valid,
@@ -37,65 +37,32 @@ module ti_top #(
     output logic                   intersect_children,
     output logic                   intersect_leaf,
 
-    // hit shader
-    output logic                 hit_valid,
-    output logic [ADDR-1:0]      hit_node,
-    output logic [DIST_SIZE-1:0] hit_dist
+    // TODO: output intersections to hit shader
+    output logic                   hit_valid,
+    output logic [ADDR-1:0]        hit_node,
+    output logic [DIST_SIZE-1:0]   hit_dist
 );
 
     // internal signals
-    logic [$clog2(N):0]        restart_trail [0:ACTUAL_DEPTH-1]; // use packed for subtask in iverilog, has 32x 3-bit counters
-    logic [$clog2(N):0]        k;
-    logic [6*ADDR-1:0]         S; // hardcoded for N=6
-    logic [N*ADDR-1:0]         Q; // use valid mask too?
-    logic [DEPTH_SIZE-1:0]     level;
-    logic [ADDR-1:0]           short_stack [0:SHORT_STACK_SIZE-1];
-    logic                      exit;
-    logic                      is_internal_node;
-    logic                      is_triangle_leaf;
-    logic [5:0][DIST_SIZE-1:0] sorted_data;
-    logic [$clog2(N)-1:0]      S_size;
+    logic [ACTUAL_DEPTH-1:0][$clog2(N):0]  restart_trail;
+    logic [$clog2(N):0]                    k;
+    logic [6*ADDR-1:0]                     S; // hardcoded for N=6
+    logic [DEPTH_SIZE-1:0]                 level;
+    logic [DEPTH_SIZE-1:0]                 parent_level;
+    logic [SHORT_STACK_SIZE*ADDR-1:0]      short_stack;
+    logic [$clog2(SHORT_STACK_SIZE)-1:0]   short_stack_counter;
+    logic                                  is_internal_node;
+    logic                                  is_triangle_leaf;
+    logic [$clog2(N)-1:0]                  S_size;
+    logic                                  none_found;
 
     // fsm to control multicycle process
-    typedef enum logic [2:0] {IDLE, CHECK_NODE, SORT_NODES, PROCESS_NODES, POP} state_e;
+    typedef enum logic [2:0] {IDLE, CHECK_NODE, SORT_NODES, PROCESS_NODES_1, PROCESS_NODES_2, POP} state_e;
     state_e state;
 
     // set node type flags
     assign is_internal_node = node_data[INTERNAL_POS]; // position may vary based on embree version
     assign is_triangle_leaf = node_data[TRIANGLE_POS]; // position may vary based on embree version
-
-
-    genvar i;
-    generate
-        for (i = 0; i < N; i = i + 1) begin
-            // node_intersect n(
-            //     .ray(),
-            //     .node(),
-            //     .distance(),
-            //     .hit()
-            // );
-        end
-    endgenerate
-
-
-    task leaf_intersect(
-        input  logic [RAY_SIZE-1:0]  ray,
-        input  logic [ADDR-1:0]      leaf,
-        output logic [DIST_SIZE-1:0] distance,
-        output logic                 hit
-    );
-        //
-    endtask
-
-
-    task pop(
-        input  logic [0:ACTUAL_DEPTH-1][$clog2(N):0] trail,
-        input  logic [DEPTH_SIZE-1:0]                level,
-        output logic                                 true
-    );
-
-    endtask
-
 
     // hardcoded for N=6
     task automatic sort_nodes(
@@ -258,8 +225,29 @@ module ti_top #(
         end
     endtask
 
+    task automatic find_next_parent_level(
+    input  logic [ACTUAL_DEPTH-1:0][$clog2(N):0]  restart_trail,
+    input  logic [DEPTH_SIZE-1:0]                 level,
+    output logic [DEPTH_SIZE-1:0]                 parent_level,
+    output logic                                  none_found
+);
+        none_found   = 1;
+        parent_level = 0;
 
-
+        // Downward scan
+        for (int i = ACTUAL_DEPTH-1; i >= 0; i=i-1) begin
+            // Only consider indices below "level"
+            if (i < level) begin
+                if (restart_trail[i] != N) begin
+                    // Only latch the first match (highest i)
+                    if (none_found) begin
+                        parent_level = i;
+                        none_found   = 1'b0;
+                    end
+                end
+            end
+        end
+    endtask
 
 
     always_ff @(posedge clk) begin
@@ -268,22 +256,28 @@ module ti_top #(
             state <= IDLE;
 
             // variable inits
-            level <= 0;
             for (int i=0; i<ACTUAL_DEPTH; i=i+1) begin
                 restart_trail[i] <= 0;
             end
-            for (int i=0; i<SHORT_STACK_SIZE; i=i+1) begin
-                short_stack[i] <= 0;
-            end
-
-            busy               <= 0;
-            cur_node           <= 0;
-            intersect_children <= 0;
-            intersect_leaf     <= 0;
+            root_node           <= 0;
+            cur_node            <= 0;
+            intersect_children  <= 0;
+            intersect_leaf      <= 0;
+            k                   <= 0;
+            S                   <= 0;
+            level               <= 0;
+            parent_level        <= 0;
+            short_stack         <= 0;
+            short_stack_counter <= 0;
+            S_size              <= 0;
+            none_found          <= 1;
+            busy                <= 0;
+            hit_valid           <= 0;
+            hit_node            <= 0;
+            hit_dist            <= 0;
         end
         else begin
             case(state)
-                // assume node and ray are fetched simultaneously
                 IDLE: begin
                     if (ray_valid) begin
                         state <= CHECK_NODE;
@@ -294,27 +288,23 @@ module ti_top #(
                         busy  <= 0;
                     end
 
-                    intersect_children <= 0;
-                    intersect_leaf     <= 0;
                     level              <= 0;
                     cur_node           <= 0;
                     for (int i=0; i<ACTUAL_DEPTH; i=i+1) begin
                         restart_trail[i] <= 0;
                     end
-                    for (int i=0; i<SHORT_STACK_SIZE; i=i+1) begin
-                        short_stack[i] <= 0;
-                    end
+                    short_stack         <= 0;
                 end
 
                 CHECK_NODE: begin
                     if (is_internal_node) begin
-                        k <= restart_trail[level];
+                        k                  <= restart_trail[level];
                         intersect_children <= 1;
-                        state <= SORT_NODES;
+                        state              <= SORT_NODES;
                     end
                     else begin
                         intersect_leaf <= 1;
-                        state <= POP;
+                        state          <= POP;
                     end
                 end
 
@@ -323,7 +313,7 @@ module ti_top #(
                         if (H_size != 0) begin
                             sort_nodes(H_dists, H_nodes, S);
                             S_size <= H_size;
-                            state <= PROCESS_NODES;
+                            state  <= PROCESS_NODES_1;
                         end
                         else begin
                             state <= POP;
@@ -332,16 +322,68 @@ module ti_top #(
                     else begin
                         state <= SORT_NODES;
                     end
+
+                    intersect_children <= 0;
+                    intersect_leaf     <= 0;
                 end
 
-                PROCESS_NODES: begin
+                PROCESS_NODES_1: begin
                     if (k == N) begin
-                        S <= S << ADDR*(H_size-1); // remove all but last node in S
+                        S      <= S >> ADDR*(H_size-1); // remove all but last node in S
                         S_size <= 1;
                     end
                     else begin
-                        S <= S << ADDR*k; // remove first k nodes in S
+                        S      <= S >> ADDR*k; // remove first k nodes in S
                         S_size <= S_size - k;
+                    end
+                    state <= PROCESS_NODES_2;
+                end
+
+                PROCESS_NODES_2: begin
+                    cur_node <= S[ADDR-1:0]; // LSB has largest distance
+                    S        <= S >> ADDR;
+                    S_size   <= S_size - 1;
+                    if (S_size == 1) begin
+                        restart_trail[level] <= N;
+                    end
+                    else begin
+                        {S, short_stack} <= {S, short_stack} >> ADDR*(S_size-1); // push S to short stack
+                        short_stack_counter <= short_stack_counter + S_size - 1;
+                    end
+                    level <= level + 1;
+                end
+
+                POP: begin
+                    find_next_parent_level(restart_trail, level, parent_level, none_found);
+                    if (none_found) begin
+                        state <= IDLE;
+                    end
+                    else begin
+                        restart_trail[parent_level] <= restart_trail[parent_level] + 1;
+                        for (int i = 0; i < ACTUAL_DEPTH; i=i+1) begin
+                            if (i > parent_level+1) begin
+                                restart_trail[i] <= 0;
+                            end
+                        end
+                        if (short_stack_counter == 0) begin
+                            cur_node <= 0;
+                            level    <= 0;
+                        end
+                        else begin
+                            cur_node <= short_stack[SHORT_STACK_SIZE*ADDR-1 -: ADDR]; // MSB is top
+                            short_stack <= short_stack << ADDR;
+                            short_stack_counter <= short_stack_counter - 1;
+                            if (short_stack_counter == 1) begin
+                                restart_trail[parent_level] <= N;
+                            end
+                            else if (is_internal_node) begin
+                                level <= parent_level;
+                            end
+                            else begin
+                                level <= parent_level + 1;
+                            end
+                        end
+                        state <= CHECK_NODE;
                     end
                 end
             endcase
