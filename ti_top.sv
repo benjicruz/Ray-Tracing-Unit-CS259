@@ -7,8 +7,8 @@ module ti_top #(
     parameter ADDR             = 32,   // pointer addresses
     parameter ROOT_ADDR        = 32,   // embree bvh address
     parameter NODE_SIZE        = 512,  // 64B
-    parameter RAY_SIZE         = 512,  // TODO
-    parameter DIST_SIZE        = 32,   // TODO
+    parameter RAY_SIZE         = 512,  // 64B
+    parameter DIST_SIZE        = 32,   // check with intersection unit
     parameter SHORT_STACK_SIZE = 5,
     parameter INTERNAL_POS     = 376,  // somewhere in 48th byte, currently bit0
     parameter TRIANGLE_POS     = 440   // somewhere in between 56-63rd byte, currently bit0 of 56th byte
@@ -26,7 +26,7 @@ module ti_top #(
     // cache
     input  logic [NODE_SIZE-1:0]   node_data,
     input  logic                   node_data_valid,
-    output logic [ROOT_ADDR-1:0]   root_node, // TODO
+    output logic [ROOT_ADDR-1:0]   root_node,
     output logic [ADDR-1:0]        cur_node,
 
     // intersection unit
@@ -35,12 +35,7 @@ module ti_top #(
     input  logic [N*ADDR-1:0]      H_nodes,
     input  logic [DIST_SIZE*6-1:0] H_dists,
     output logic                   intersect_children,
-    output logic                   intersect_leaf,
-
-    // TODO: output intersections to hit shader
-    output logic                   hit_valid,
-    output logic [ADDR-1:0]        hit_node,
-    output logic [DIST_SIZE-1:0]   hit_dist
+    output logic                   intersect_leaf
 );
 
     // internal signals
@@ -226,11 +221,11 @@ module ti_top #(
     endtask
 
     task automatic find_next_parent_level(
-    input  logic [ACTUAL_DEPTH-1:0][$clog2(N):0]  restart_trail,
-    input  logic [DEPTH_SIZE-1:0]                 level,
-    output logic [DEPTH_SIZE-1:0]                 parent_level,
-    output logic                                  none_found
-);
+        input  logic [ACTUAL_DEPTH-1:0][$clog2(N):0]  restart_trail,
+        input  logic [DEPTH_SIZE-1:0]                 level,
+        output logic [DEPTH_SIZE-1:0]                 parent_level,
+        output logic                                  none_found
+    );
         none_found   = 1;
         parent_level = 0;
 
@@ -272,9 +267,6 @@ module ti_top #(
             S_size              <= 0;
             none_found          <= 1;
             busy                <= 0;
-            hit_valid           <= 0;
-            hit_node            <= 0;
-            hit_dist            <= 0;
         end
         else begin
             case(state)

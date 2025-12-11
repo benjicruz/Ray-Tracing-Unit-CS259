@@ -33,10 +33,6 @@ module ti_tb();
     logic                   intersect_children; // output
     logic                   intersect_leaf; // output
 
-    logic                   hit_valid; // output
-    logic [ADDR-1:0]        hit_node; // output
-    logic [DIST_SIZE-1:0]   hit_dist; // output
-
     ti_top #(
         .N(N),
         .DEPTH_SIZE(DEPTH_SIZE),
@@ -64,10 +60,7 @@ module ti_tb();
         .H_nodes(H_nodes),
         .H_dists(H_dists),
         .intersect_children(intersect_children),
-        .intersect_leaf(intersect_leaf),
-        .hit_valid(hit_valid),
-        .hit_node(hit_node),
-        .hit_dist(hit_dist)
+        .intersect_leaf(intersect_leaf)
     );
 
     always #1 clk = ~clk;

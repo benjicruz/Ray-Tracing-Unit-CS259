@@ -1,15 +1,15 @@
 [*]
-[*] GTKWave Analyzer v3.4.0 (w)1999-2022 BSI
-[*] Wed Dec 10 08:32:18 2025
+[*] GTKWave Analyzer v3.3.100 (w)1999-2019 BSI
+[*] Thu Dec 11 08:04:48 2025
 [*]
-[dumpfile] "dump.vcd"
-[dumpfile_mtime] "Wed Dec 10 08:25:26 2025"
-[dumpfile_size] 5042
-[savefile] "/Users/taylorkawate/gpu_class/Ray-Tracing-Unit-CS259/waveform1.gtkw"
+[dumpfile] "D:\CS259\Ray-Tracing-Unit-CS259\dump.vcd"
+[dumpfile_mtime] "Thu Dec 11 08:04:02 2025"
+[dumpfile_size] 5522
+[savefile] "D:\CS259\Ray-Tracing-Unit-CS259\waveform1.gtkw"
 [timestart] 0
-[size] 1472 890
-[pos] -1 -1
-*-3.974005 53 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+[size] 2048 1081
+[pos] -61 -61
+*-4.497321 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 [treeopen] ti_tb.
 [sst_width] 255
 [signals_width] 322
@@ -47,11 +47,6 @@ ti_tb.dut.H_size[2:0]
 ti_tb.dut.S[47:0]
 @24
 ti_tb.dut.S_size[2:0]
-@22
-ti_tb.dut.hit_node[7:0]
-ti_tb.dut.hit_dist[7:0]
-@28
-ti_tb.dut.hit_valid
 @22
 ti_tb.dut.restart_trail[255:0]
 ti_tb.dut.short_stack[39:0]
